@@ -6,9 +6,6 @@ import rl "vendor:raylib"
 SCREEN_WIDTH :: 1024
 SCREEN_HEIGHT :: 800
 
-SELECTION_MARGIN :: 10.0
-SELECTION_CORNER_RECT_SIZE :: 8.0
-
 RECTANGLE_MIN_SIZE :: 12
 
 DruidObjectType :: enum {

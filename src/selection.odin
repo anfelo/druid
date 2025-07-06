@@ -2,6 +2,9 @@ package main
 
 import rl "vendor:raylib"
 
+SELECTION_MARGIN :: 10.0
+SELECTION_CORNER_RECT_SIZE :: 8.0
+
 DruidSelection :: struct {
 	mouse_mode:           DruidMouseMode,
 	mouse_pressed:        bool,
