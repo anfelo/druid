@@ -6,33 +6,10 @@ import rl "vendor:raylib"
 SCREEN_WIDTH :: 1024
 SCREEN_HEIGHT :: 800
 
-TOOLBAR_WIDTH :: 118
-TOOLBAR_HEIGHT :: 44
-TOOLBAR_ITEM_SIZE :: 34
-TOOLBAR_ITEM_MARGIN :: 4
-
 SELECTION_MARGIN :: 10.0
 SELECTION_CORNER_RECT_SIZE :: 8.0
 
 RECTANGLE_MIN_SIZE :: 12
-
-DruidToolbarItemType :: enum {
-	Selection,
-	Rectangle,
-	Eraser,
-	None,
-}
-
-DruidToolbarItem :: struct {
-	type: DruidToolbarItemType,
-	icon: rl.GuiIconName,
-}
-
-DruidToolbar :: struct {
-	position: rl.Vector2,
-	selected: DruidToolbarItemType,
-	hovered:  DruidToolbarItemType,
-}
 
 DruidObjectType :: enum {
 	Rectangle,
@@ -95,11 +72,12 @@ DruidDeletion :: struct {
 }
 
 DruidState :: struct {
-	toolbar:   DruidToolbar,
-	objects:   [dynamic]DruidObject,
-	selection: DruidSelection,
-	creation:  DruidCreation,
-	deletion:  DruidDeletion,
+	mouse_position: rl.Vector2,
+	toolbar:        DruidToolbar,
+	objects:        [dynamic]DruidObject,
+	selection:      DruidSelection,
+	creation:       DruidCreation,
+	deletion:       DruidDeletion,
 }
 
 main :: proc() {
@@ -107,25 +85,8 @@ main :: proc() {
 
 	rl.SetTargetFPS(60)
 
-	toolbar_position := rl.Vector2{SCREEN_WIDTH / 2 - TOOLBAR_WIDTH / 2, 4}
-	toolbar_rect := rl.Rectangle {
-		toolbar_position.x,
-		toolbar_position.y,
-		TOOLBAR_WIDTH,
-		TOOLBAR_HEIGHT,
-	}
-	toolbar_items := [?]DruidToolbarItem {
-		{type = .Selection, icon = .ICON_CURSOR_CLASSIC},
-		{type = .Rectangle, icon = .ICON_BOX},
-		{type = .Eraser, icon = .ICON_RUBBER},
-	}
-
 	state := DruidState {
-		toolbar = DruidToolbar {
-			position = rl.Vector2{SCREEN_WIDTH / 2 - TOOLBAR_WIDTH / 2, 4},
-			selected = .Selection,
-			hovered = .None,
-		},
+		toolbar = toolbar_init(),
 		objects = {},
 		selection = {
 			mouse_mode = .None,
@@ -140,31 +101,11 @@ main :: proc() {
 	for (!rl.WindowShouldClose()) {
 		// Update
 		mouse_position := rl.GetMousePosition()
+		state.mouse_position = mouse_position
 
-		if (rl.CheckCollisionPointRec(mouse_position, toolbar_rect)) {
-			for item, i in toolbar_items {
-				item_rect := rl.Rectangle {
-					toolbar_position.x +
-					cast(f32)(TOOLBAR_ITEM_SIZE * i) +
-					cast(f32)(TOOLBAR_ITEM_MARGIN * i) +
-					TOOLBAR_ITEM_MARGIN,
-					toolbar_position.y + 5,
-					TOOLBAR_ITEM_SIZE,
-					TOOLBAR_ITEM_SIZE,
-				}
-				if (rl.CheckCollisionPointRec(mouse_position, item_rect)) {
-					state.toolbar.hovered = item.type
-					if (rl.IsMouseButtonPressed(.LEFT)) {
-						state.toolbar.selected = item.type
-						state.selection.selected_idx = -1
-					}
-				} else if (state.toolbar.hovered == item.type) {
-					state.toolbar.hovered = .None
-				}
-			}
-		} else {
-			state.toolbar.hovered = .None
+		toolbar_update(&state)
 
+		if (!rl.CheckCollisionPointRec(mouse_position, toolbar_rect)) {
 			switch state.toolbar.selected {
 			case .Selection:
 				hovered_idx := -1
@@ -177,17 +118,20 @@ main :: proc() {
 				state.selection.hovered_idx = hovered_idx
 
 				if (rl.IsMouseButtonPressed(.LEFT)) {
-					if (state.selection.selected_idx != -1) {
-						state.selection.mouse_pressed = true
-						state.selection.mouse_pressed_pos = mouse_position
-					} else {
-						state.selection.mouse_pressed = true
+					state.selection.mouse_pressed = true
+					state.selection.mouse_pressed_pos = mouse_position
+
+					if (state.selection.selected_idx == -1) {
 						state.selection.selected_idx = state.selection.hovered_idx
 					}
 				}
 
-				if (state.selection.mouse_pressed && state.selection.selected_idx != -1) {
-					object_resize(&state, mouse_position)
+				if (state.selection.mouse_pressed) {
+					if (state.selection.selected_idx != -1) {
+						object_resize(&state, mouse_position)
+					} else {
+						// TODO: Check for objects selected
+					}
 				}
 
 				if (rl.IsMouseButtonReleased(.LEFT)) {
@@ -275,42 +219,6 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
 
-		// Toolbar
-		rl.DrawRectangleLines(
-			cast(i32)toolbar_position.x,
-			cast(i32)toolbar_position.y,
-			TOOLBAR_WIDTH,
-			TOOLBAR_HEIGHT,
-			rl.DARKGRAY,
-		)
-		for item, i in toolbar_items {
-			color :=
-				item.type == state.toolbar.selected ? rl.SKYBLUE : item.type == state.toolbar.hovered ? rl.BLUE : rl.DARKGRAY
-
-			rl.DrawRectangleLines(
-				cast(i32)toolbar_position.x +
-				cast(i32)(TOOLBAR_ITEM_SIZE * i) +
-				cast(i32)(TOOLBAR_ITEM_MARGIN * i) +
-				TOOLBAR_ITEM_MARGIN,
-				cast(i32)toolbar_position.y + 5,
-				TOOLBAR_ITEM_SIZE,
-				TOOLBAR_ITEM_SIZE,
-				color,
-			)
-
-			rl.GuiDrawIcon(
-				item.icon,
-				cast(i32)toolbar_position.x +
-				cast(i32)(TOOLBAR_ITEM_SIZE * i) +
-				cast(i32)(TOOLBAR_ITEM_MARGIN * i) +
-				TOOLBAR_ITEM_MARGIN +
-				1,
-				cast(i32)toolbar_position.y + 6,
-				2,
-				color,
-			)
-		}
-
 		// Objects
 		for item, i in state.objects {
 			switch item.type {
@@ -367,6 +275,22 @@ main :: proc() {
 						SELECTION_CORNER_RECT_SIZE,
 						rl.SKYBLUE,
 					)
+				} else if (state.selection.mouse_pressed && state.selection.selected_idx == -1) {
+					selection_origin := state.selection.mouse_pressed_pos
+					selection_rect := rl.Rectangle {
+						x      = selection_origin.x,
+						y      = selection_origin.y,
+						width  = mouse_position.x - selection_origin.x,
+						height = mouse_position.y - selection_origin.y,
+					}
+
+					rl.DrawRectangleLines(
+						cast(i32)selection_rect.x,
+						cast(i32)selection_rect.y,
+						cast(i32)selection_rect.width,
+						cast(i32)selection_rect.height,
+						rl.SKYBLUE,
+					)
 				}
 
 				_, erasing := state.deletion.deleting_idxs_map[i]
@@ -380,6 +304,9 @@ main :: proc() {
 				)
 			}
 		}
+
+		// Toolbar
+		toolbar_draw(&state)
 
 		rl.EndDrawing()
 	}
