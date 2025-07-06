@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:slice"
 import rl "vendor:raylib"
 
 SCREEN_WIDTH :: 1024
@@ -201,9 +202,13 @@ main :: proc() {
 					state.creation.mouse_mode = .None
 					state.creation.resizing_idx = -1
 
-					// TODO: There is a bug here when deleting lower idxs first
-					for del_idx in state.deletion.deleting_idxs {
-						ordered_remove(&state.objects, del_idx)
+					// INFO: Sort the indexes to remove first to prevent out of
+					// bounds deletions
+					del_slice := state.deletion.deleting_idxs[:]
+					slice.reverse_sort(del_slice)
+
+					for del_idx in del_slice {
+						unordered_remove(&state.objects, del_idx)
 					}
 
 					clear(&state.deletion.deleting_idxs)
