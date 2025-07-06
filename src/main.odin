@@ -46,20 +46,6 @@ DruidCoord :: enum {
 	None,
 }
 
-DruidSelection :: struct {
-	mouse_mode:           DruidMouseMode,
-	mouse_pressed:        bool,
-	mouse_pressed_pos:    rl.Vector2,
-	selection_area_coord: DruidCoord,
-	selected_idx:         int,
-	hovered_idx:          int,
-}
-
-DruidSelectionArea :: struct {
-	rect:  rl.Rectangle,
-	coord: DruidCoord,
-}
-
 DruidCreation :: struct {
 	mouse_mode:   DruidMouseMode,
 	resizing_idx: int,
@@ -109,39 +95,7 @@ main :: proc() {
 		if (!rl.CheckCollisionPointRec(mouse_position, toolbar_rect)) {
 			switch state.toolbar.selected {
 			case .Selection:
-				hovered_idx := -1
-				for obj, i in state.objects {
-					if (mouse_collides_with_object(mouse_position, obj)) {
-						hovered_idx = i
-						break
-					}
-				}
-				state.selection.hovered_idx = hovered_idx
-
-				if (rl.IsMouseButtonPressed(.LEFT)) {
-					state.selection.mouse_pressed = true
-					state.selection.mouse_pressed_pos = mouse_position
-
-					if (state.selection.selected_idx == -1) {
-						state.selection.selected_idx = state.selection.hovered_idx
-					}
-				}
-
-				if (state.selection.mouse_pressed) {
-					if (state.selection.selected_idx != -1) {
-						object_resize(&state, mouse_position)
-					} else {
-						// TODO: Check for objects selected
-					}
-				}
-
-				if (rl.IsMouseButtonReleased(.LEFT)) {
-					state.selection.mouse_pressed = false
-				}
-
-				if (state.selection.selected_idx != -1 && !state.selection.mouse_pressed) {
-					set_selection_mouse_mode(&state, mouse_position)
-				}
+				selection_update(&state)
 			case .Rectangle:
 				if (rl.IsMouseButtonPressed(.LEFT)) {
 					state.creation.mouse_mode = .Creating
@@ -224,80 +178,12 @@ main :: proc() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
 
+		selection_draw(&state)
+
 		// Objects
 		for item, i in state.objects {
 			switch item.type {
 			case .Rectangle:
-				if (state.selection.selected_idx == i) {
-					selection_rect := rl.Rectangle {
-						x      = item.position.x - SELECTION_MARGIN,
-						y      = item.position.y - SELECTION_MARGIN,
-						width  = item.scale.x + SELECTION_MARGIN * 2,
-						height = item.scale.y + SELECTION_MARGIN * 2,
-					}
-
-					rl.DrawRectangleLines(
-						cast(i32)selection_rect.x,
-						cast(i32)selection_rect.y,
-						cast(i32)selection_rect.width,
-						cast(i32)selection_rect.height,
-						rl.SKYBLUE,
-					)
-
-					rl.DrawRectangle(
-						cast(i32)selection_rect.x - SELECTION_CORNER_RECT_SIZE / 2,
-						cast(i32)selection_rect.y - SELECTION_CORNER_RECT_SIZE / 2,
-						SELECTION_CORNER_RECT_SIZE,
-						SELECTION_CORNER_RECT_SIZE,
-						rl.SKYBLUE,
-					)
-					rl.DrawRectangle(
-						cast(i32)selection_rect.x +
-						cast(i32)selection_rect.width -
-						SELECTION_CORNER_RECT_SIZE / 2,
-						cast(i32)selection_rect.y - SELECTION_CORNER_RECT_SIZE / 2,
-						SELECTION_CORNER_RECT_SIZE,
-						SELECTION_CORNER_RECT_SIZE,
-						rl.SKYBLUE,
-					)
-					rl.DrawRectangle(
-						cast(i32)selection_rect.x +
-						cast(i32)selection_rect.width -
-						SELECTION_CORNER_RECT_SIZE / 2,
-						cast(i32)selection_rect.y +
-						cast(i32)selection_rect.height -
-						SELECTION_CORNER_RECT_SIZE / 2,
-						SELECTION_CORNER_RECT_SIZE,
-						SELECTION_CORNER_RECT_SIZE,
-						rl.SKYBLUE,
-					)
-					rl.DrawRectangle(
-						cast(i32)selection_rect.x - SELECTION_CORNER_RECT_SIZE / 2,
-						cast(i32)selection_rect.y +
-						cast(i32)selection_rect.height -
-						SELECTION_CORNER_RECT_SIZE / 2,
-						SELECTION_CORNER_RECT_SIZE,
-						SELECTION_CORNER_RECT_SIZE,
-						rl.SKYBLUE,
-					)
-				} else if (state.selection.mouse_pressed && state.selection.selected_idx == -1) {
-					selection_origin := state.selection.mouse_pressed_pos
-					selection_rect := rl.Rectangle {
-						x      = selection_origin.x,
-						y      = selection_origin.y,
-						width  = mouse_position.x - selection_origin.x,
-						height = mouse_position.y - selection_origin.y,
-					}
-
-					rl.DrawRectangleLines(
-						cast(i32)selection_rect.x,
-						cast(i32)selection_rect.y,
-						cast(i32)selection_rect.width,
-						cast(i32)selection_rect.height,
-						rl.SKYBLUE,
-					)
-				}
-
 				_, erasing := state.deletion.deleting_idxs_map[i]
 				color := erasing ? rl.GRAY : rl.RAYWHITE
 				rl.DrawRectangleLines(
@@ -382,133 +268,14 @@ mouse_collides_with_object :: proc(mouse_position: rl.Vector2, object: DruidObje
 	return false
 }
 
-set_selection_mouse_mode :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
-	mouse_mode: DruidMouseMode = .None
-
-	selection_object := state.objects[state.selection.selected_idx]
-	selection_rect := rl.Rectangle {
-		x      = selection_object.position.x - SELECTION_MARGIN,
-		y      = selection_object.position.y - SELECTION_MARGIN,
-		width  = selection_object.scale.x + SELECTION_MARGIN * 2,
-		height = selection_object.scale.y + SELECTION_MARGIN * 2,
-	}
-	selection_areas := [?]DruidSelectionArea {
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x,
-				selection_rect.y,
-				selection_rect.width,
-				selection_rect.height,
-			},
-			coord = .CENTER,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x,
-				selection_rect.y - SELECTION_MARGIN,
-				selection_rect.width,
-				SELECTION_MARGIN * 2,
-			},
-			coord = .N,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x,
-				selection_rect.y + selection_rect.height - SELECTION_MARGIN,
-				selection_rect.width,
-				SELECTION_MARGIN * 2,
-			},
-			coord = .S,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x - SELECTION_MARGIN,
-				selection_rect.y,
-				SELECTION_MARGIN * 2,
-				selection_rect.height,
-			},
-			coord = .W,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x + selection_rect.width - SELECTION_MARGIN,
-				selection_rect.y,
-				SELECTION_MARGIN * 2,
-				selection_rect.height,
-			},
-			coord = .E,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x - SELECTION_CORNER_RECT_SIZE / 2,
-				selection_rect.y - SELECTION_CORNER_RECT_SIZE / 2,
-				SELECTION_CORNER_RECT_SIZE,
-				SELECTION_CORNER_RECT_SIZE,
-			},
-			coord = .NW,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x + selection_rect.width - SELECTION_CORNER_RECT_SIZE / 2,
-				selection_rect.y - SELECTION_CORNER_RECT_SIZE / 2,
-				SELECTION_CORNER_RECT_SIZE,
-				SELECTION_CORNER_RECT_SIZE,
-			},
-			coord = .NE,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x + selection_rect.width - SELECTION_CORNER_RECT_SIZE / 2,
-				selection_rect.y + selection_rect.height - SELECTION_CORNER_RECT_SIZE / 2,
-				SELECTION_CORNER_RECT_SIZE,
-				SELECTION_CORNER_RECT_SIZE,
-			},
-			coord = .SE,
-		},
-		DruidSelectionArea {
-			rect = rl.Rectangle {
-				selection_rect.x - SELECTION_CORNER_RECT_SIZE / 2,
-				selection_rect.y + selection_rect.height - SELECTION_CORNER_RECT_SIZE / 2,
-				SELECTION_CORNER_RECT_SIZE,
-				SELECTION_CORNER_RECT_SIZE,
-			},
-			coord = .SW,
-		},
-	}
-
-	state.selection.selection_area_coord = .None
-	for area in selection_areas {
-		if (rl.CheckCollisionPointRec(mouse_position, area.rect)) {
-			state.selection.selection_area_coord = area.coord
-		}
-	}
-
-	switch state.selection.selection_area_coord {
-	case .N, .S:
-		mouse_mode = .ResizingNS
-	case .W, .E:
-		mouse_mode = .ResizingEW
-	case .NW, .SE:
-		mouse_mode = .ResizingNWSE
-	case .NE, .SW:
-		mouse_mode = .ResizingNESW
-	case .CENTER:
-		mouse_mode = .Dragging
-	case .None:
-		mouse_mode = .None
-	}
-
-	state.selection.mouse_mode = mouse_mode
-}
-
-object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
+object_resize :: proc(state: ^DruidState) {
 	obj := &state.objects[state.selection.selected_idx]
 
 	switch state.selection.selection_area_coord {
 	case .None:
 		state.selection.selected_idx = state.selection.hovered_idx
 	case .N:
-		delta := mouse_position.y - obj.position.y
+		delta := state.mouse_position.y - obj.position.y
 
 		obj.scale.y -= delta
 		obj.position.y += delta
@@ -518,7 +285,7 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.position.y -= delta
 		}
 	case .S:
-		delta := mouse_position.y - (obj.position.y + obj.scale.y)
+		delta := state.mouse_position.y - (obj.position.y + obj.scale.y)
 
 		obj.scale.y += delta
 
@@ -526,7 +293,7 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.scale.y = RECTANGLE_MIN_SIZE
 		}
 	case .W:
-		delta := mouse_position.x - obj.position.x
+		delta := state.mouse_position.x - obj.position.x
 
 		obj.scale.x -= delta
 		obj.position.x += delta
@@ -537,7 +304,7 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 		}
 	case .E:
 		obj := &state.objects[state.selection.selected_idx]
-		delta := mouse_position.x - (obj.position.x + obj.scale.x)
+		delta := state.mouse_position.x - (obj.position.x + obj.scale.x)
 
 		obj.scale.x += delta
 
@@ -545,7 +312,7 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.scale.x = RECTANGLE_MIN_SIZE
 		}
 	case .NW:
-		delta := mouse_position - obj.position
+		delta := state.mouse_position - obj.position
 
 		obj.scale -= delta
 		obj.position += delta
@@ -560,8 +327,8 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.position.y -= delta.y
 		}
 	case .NE:
-		delta_x := mouse_position.x - (obj.position.x + obj.scale.x)
-		delta_y := mouse_position.y - obj.position.y
+		delta_x := state.mouse_position.x - (obj.position.x + obj.scale.x)
+		delta_y := state.mouse_position.y - obj.position.y
 
 		obj.scale.x += delta_x
 		obj.scale.y -= delta_y
@@ -576,8 +343,8 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.position.y -= delta_y
 		}
 	case .SW:
-		delta_x := mouse_position.x - obj.position.x
-		delta_y := mouse_position.y - (obj.position.y + obj.scale.y)
+		delta_x := state.mouse_position.x - obj.position.x
+		delta_y := state.mouse_position.y - (obj.position.y + obj.scale.y)
 
 		obj.scale.x -= delta_x
 		obj.position.x += delta_x
@@ -592,8 +359,8 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.scale.y = RECTANGLE_MIN_SIZE
 		}
 	case .SE:
-		delta_y := mouse_position.y - (obj.position.y + obj.scale.y)
-		delta_x := mouse_position.x - (obj.position.x + obj.scale.x)
+		delta_y := state.mouse_position.y - (obj.position.y + obj.scale.y)
+		delta_x := state.mouse_position.x - (obj.position.x + obj.scale.x)
 
 		obj.scale.x += delta_x
 		obj.scale.y += delta_y
@@ -606,7 +373,7 @@ object_resize :: proc(state: ^DruidState, mouse_position: rl.Vector2) {
 			obj.scale.y = RECTANGLE_MIN_SIZE
 		}
 	case .CENTER:
-		delta := mouse_position - state.selection.mouse_pressed_pos
+		delta := state.mouse_position - state.selection.mouse_pressed_pos
 
 		state.selection.mouse_pressed_pos += delta
 
